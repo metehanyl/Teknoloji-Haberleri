@@ -38,14 +38,24 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --non-interactive
 
-      - name: Build debug APK
+      - name: Bundle JavaScript into APK assets
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.ts \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
+
+      - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: teknoloji-haberleri-debug-apk
+          name: teknoloji-haberleri-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Create GitHub Release with APK
@@ -53,5 +63,5 @@ jobs:
         with:
           tag_name: apk-${{ github.run_number }}
           name: "Teknoloji Haberleri APK #${{ github.run_number }}"
-          body: "Otomatik derlenmiş debug APK."
+          body: "Teknoloji Haberleri uygulaması — telefonunuza yükleyebilirsiniz."
           files: android/app/build/outputs/apk/debug/app-debug.apk
