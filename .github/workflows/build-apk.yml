@@ -36,12 +36,14 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Generate native Android project
-        run: npx expo prebuild --platform android --non-interactive
+        run: npx expo prebuild --platform android
+        env:
+          CI: "1"
 
       - name: Bundle JavaScript into APK assets
         run: |
           mkdir -p android/app/src/main/assets
-          npx react-native bundle \
+          npx expo export:embed \
             --platform android \
             --dev false \
             --entry-file index.ts \
