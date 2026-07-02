@@ -1,3 +1,4 @@
+import { XMLParser } from 'fast-xml-parser';
 import { NewsItem } from '../types/news';
 import { extractFirstImage, stripHtml, truncate } from '../utils/html';
 
@@ -13,49 +14,53 @@ const FEEDS: FeedSource[] = [
   { url: 'https://www.donanimhaber.com/rss/tum/', name: 'Donanımhaber' },
 ];
 
-const RSS_TO_JSON_ENDPOINT = 'https://api.rss2json.com/v1/api.json';
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  isArray: (name) => name === 'item',
+});
 
-interface RawFeedItem {
-  guid?: string;
-  link: string;
-  title: string;
-  description?: string;
-  content?: string;
-  pubDate: string;
-  thumbnail?: string;
-  enclosure?: { link?: string };
-}
+function extractImage(item: Record<string, unknown>): string | null {
+  const media = item['media:content'] as Record<string, string> | undefined;
+  if (media?.['@_url']) return media['@_url'];
 
-interface RawFeedResponse {
-  status: string;
-  items: RawFeedItem[];
+  const enclosure = item['enclosure'] as Record<string, string> | undefined;
+  if (enclosure?.['@_url']) return enclosure['@_url'];
+
+  const thumbnail = item['media:thumbnail'] as Record<string, string> | undefined;
+  if (thumbnail?.['@_url']) return thumbnail['@_url'];
+
+  const description = (item['description'] as string) || (item['content:encoded'] as string) || '';
+  return extractFirstImage(description);
 }
 
 async function fetchFeed(source: FeedSource): Promise<NewsItem[]> {
-  const requestUrl = `${RSS_TO_JSON_ENDPOINT}?rss_url=${encodeURIComponent(source.url)}&count=20`;
-  const response = await fetch(requestUrl);
+  const response = await fetch(source.url, {
+    headers: { 'User-Agent': 'TeknolojiHaberleri/1.0' },
+  });
   if (!response.ok) {
     throw new Error(`${source.name} alınamadı (${response.status})`);
   }
-  const data: RawFeedResponse = await response.json();
-  if (data.status !== 'ok' || !Array.isArray(data.items)) {
-    throw new Error(`${source.name} geçersiz yanıt döndürdü`);
-  }
+  const xml = await response.text();
+  const parsed = parser.parse(xml);
 
-  return data.items.map((item) => {
-    const summaryHtml = item.description || item.content || '';
-    const fullHtml = item.content || item.description || '';
-    const image = item.thumbnail || item.enclosure?.link || extractFirstImage(fullHtml);
+  const items: Record<string, unknown>[] = parsed?.rss?.channel?.item ?? [];
+
+  return items.map((item, index) => {
+    const descHtml = (item['description'] as string) || (item['content:encoded'] as string) || '';
+    const contentHtml = (item['content:encoded'] as string) || (item['description'] as string) || '';
+    const link = (item['link'] as string) || '';
+    const guid = (item['guid'] as string) || link || String(index);
 
     return {
-      id: item.guid || item.link,
-      title: stripHtml(item.title),
-      summary: truncate(stripHtml(summaryHtml), 160),
-      content: stripHtml(fullHtml),
-      imageUrl: image || null,
-      link: item.link,
+      id: guid,
+      title: stripHtml(String(item['title'] || '')),
+      summary: truncate(stripHtml(descHtml), 160),
+      content: stripHtml(contentHtml),
+      imageUrl: extractImage(item),
+      link,
       sourceName: source.name,
-      pubDate: item.pubDate,
+      pubDate: String(item['pubDate'] || ''),
     };
   });
 }
